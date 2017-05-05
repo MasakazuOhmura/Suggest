@@ -1,13 +1,15 @@
 package jp.ac.titech.itpro.sdl.suggest;
 
 import android.app.SearchManager;
+import android.content.Context;
 import android.content.Intent;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
 import android.util.Xml;
 import android.view.View;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -27,20 +29,41 @@ public class MainActivity extends AppCompatActivity {
     private EditText inputText;
     private ArrayAdapter<String> resultAdapter;
 
+    private String query = "init";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        inputText = (EditText)findViewById(R.id.input_text);
-        Button suggestButton = (Button)findViewById(R.id.suggest_button);
-        ListView resultList = (ListView)findViewById(R.id.result_list);
+        inputText = (EditText) findViewById(R.id.input_text);
+        Button suggestButton = (Button) findViewById(R.id.suggest_button);
+        ListView resultList = (ListView) findViewById(R.id.result_list);
+
+        if (savedInstanceState != null) {
+            query = savedInstanceState.getString(EDIT_KEY);
+        }
+
+        inputText.setText(query);
+        inputText.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override
+            public void onFocusChange(View v, boolean hasFocus) {
+                if (hasFocus == false) {
+                    InputMethodManager imm = (InputMethodManager)getSystemService(Context.INPUT_METHOD_SERVICE);
+                    imm.hideSoftInputFromWindow(v.getWindowToken(), InputMethodManager.HIDE_NOT_ALWAYS);
+                }
+            }
+        });
 
         suggestButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 String queryText = inputText.getText().toString().trim();
                 new SuggestThread(queryText).start();
+
+                v.setFocusable(true);
+                v.setFocusableInTouchMode(true);
+                v.requestFocus();
             }
         });
 
@@ -49,12 +72,42 @@ public class MainActivity extends AppCompatActivity {
         resultList.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int pos, long id) {
-                String text = (String)parent.getItemAtPosition(pos);
+                String text = (String) parent.getItemAtPosition(pos);
                 Intent intent = new Intent(Intent.ACTION_WEB_SEARCH);
                 intent.putExtra(SearchManager.QUERY, text);
                 startActivity(intent);
             }
         });
+    }
+
+    private final static String EDIT_KEY = "EDIT_KEY";
+    private final static String ARRAY_KEY = "ARRAY_KEY";
+
+    // before "onPause"
+    @Override
+    public void onSaveInstanceState(Bundle outState) {
+        outState.putString(EDIT_KEY, inputText.getText().toString());
+
+        String resultArray[] = new String[resultAdapter.getCount()];
+        for(int i = 0; i < resultAdapter.getCount(); i++) {
+            resultArray[i] = resultAdapter.getItem(i);
+        }
+        outState.putStringArray(ARRAY_KEY, resultArray);
+
+        super.onSaveInstanceState(outState);
+    }
+
+    // after "onStart"
+    @Override
+    protected void onRestoreInstanceState(Bundle savedInstanceState) {
+        super.onRestoreInstanceState(savedInstanceState);
+        query = savedInstanceState.getString(EDIT_KEY);
+        inputText.setText(query);
+
+        String[] resultArray = savedInstanceState.getStringArray(ARRAY_KEY);
+        resultAdapter.clear();
+        resultAdapter.addAll(resultArray);
+        resultAdapter.notifyDataSetChanged();
     }
 
     private final static int MSG_RESULT = 1111;
@@ -64,12 +117,12 @@ public class MainActivity extends AppCompatActivity {
         @SuppressWarnings("unchecked")
         public boolean handleMessage(Message msg) {
             switch (msg.what) {
-            case MSG_RESULT:
-                resultAdapter.clear();
-                resultAdapter.addAll((List<String>)msg.obj);
-                resultAdapter.notifyDataSetChanged();
-                inputText.selectAll();
-                break;
+                case MSG_RESULT:
+                    resultAdapter.clear();
+                    resultAdapter.addAll((List<String>) msg.obj);
+                    resultAdapter.notifyDataSetChanged();
+                    inputText.selectAll();
+                    break;
             }
             return false;
         }
@@ -90,7 +143,7 @@ public class MainActivity extends AppCompatActivity {
             try {
                 String query = URLEncoder.encode(queryText, "UTF-8");
                 URL url = new URL(getString(R.string.suggest_url, query));
-                conn = (HttpURLConnection)url.openConnection();
+                conn = (HttpURLConnection) url.openConnection();
                 conn.setConnectTimeout(10000);
                 conn.setReadTimeout(15000);
                 conn.setDoInput(true);
@@ -104,11 +157,9 @@ public class MainActivity extends AppCompatActivity {
                                 result.add(xpp.getAttributeValue(i));
                     }
                 }
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 error = e.toString();
-            }
-            finally {
+            } finally {
                 if (conn != null)
                     conn.disconnect();
             }
